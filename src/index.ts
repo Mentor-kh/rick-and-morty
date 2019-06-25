@@ -6,15 +6,25 @@ import './style.css';
 const inputElement: HTMLInputElement = document.querySelector('#refInput') as HTMLInputElement;
 const API: string = 'https://rickandmortyapi.com/api/';
 const characters: string = 'character/';
-let restApi: Promise<IApiResults>;
+let resultsApi: Promise<IApiResults>;
 let pageId: number = 1;
 let filterValue: string = '';
 
 const getUrl: Function = () => `${API}${characters}?page=${pageId}&name=${filterValue}`;
 
-const createApiRequest$: Observable<string> = Observable.create((observer: Observer<string>) => {
+const singleCharacterRequest$: Observable<string> = Observable.create((observer: Observer<string>) => {
   const parentObserver: Observer<string> = observer;
+  documentClicks$.subscribe((response: any) => {
+    const item: HTMLDivElement = response.target.closest('.item');
+    const modal: HTMLDivElement = response.target.closest('.modal');
+    if (item && !modal) {
+      parentObserver.next(item.dataset.url);
+    }
+  });
+});
 
+const listCharactersRequest$: Observable<string> = Observable.create((observer: Observer<string>) => {
+  const parentObserver: Observer<string> = observer;
   parentObserver.next(getUrl());
 
   filterValue$.subscribe((response: string) => {
@@ -23,13 +33,10 @@ const createApiRequest$: Observable<string> = Observable.create((observer: Obser
     parentObserver.next(getUrl());
   });
 
-  clicks$.subscribe((response: any) => {
-    const item: HTMLDivElement = response.target.closest('.item');
-
+  documentClicks$.subscribe((response: any) => {
     if (response.target.nodeName === 'LI' && response.target.closest('.pagination')) {
       const value: string = response.target.innerHTML;
-
-      restApi.then((result: IApiResults) => {
+      resultsApi.then((result: IApiResults) => {
         if (value === 'next') {
           pageId++;
           parentObserver.next(result.info[value]);
@@ -42,9 +49,6 @@ const createApiRequest$: Observable<string> = Observable.create((observer: Obser
         }
       });
     }
-    if (item) {
-      parentObserver.next(item.dataset.url);
-    }
   });
 });
 
@@ -53,19 +57,29 @@ const filterValue$: Observable<string> = fromEvent(inputElement, 'input').pipe(
   debounceTime(500)
 );
 
-const clicks$: Observable<Event> = fromEvent(document, 'click');
+const documentClicks$: Observable<Event> = fromEvent(document, 'click');
 
-createApiRequest$.subscribe((response: string) => {
+singleCharacterRequest$.subscribe((response: string) => {
+  const characterResult$: Observable<ICharacter> = from(fetch(response)
+    .then((result: Response) => result.json()));
+
+  characterResult$.subscribe((responseApi: ICharacter) => {
+    const character: ICharacter = responseApi;
+
+    triggerModal(character);
+  }, (err: Error) => alert(err));
+});
+
+listCharactersRequest$.subscribe((response: string) => {
   const charactersResult$: Observable<IApiResults> = from(fetch(response)
     .then((result: Response) => {
-      restApi = result.json();
-      return restApi;
+      resultsApi = result.json();
+      return resultsApi;
     }));
 
   charactersResult$.subscribe((responseApi: IApiResults) => {
     const pageResults: ICharacter[] = responseApi.results;
     const info: IPagesInfo = responseApi.info;
-
     createPagination(info);
     createCharacters(pageResults);
   }, (err: Error) => alert(err));
@@ -163,4 +177,61 @@ const createCharacters: Function = (data: ICharacter[]) => {
       </div>
     `;
   });
+};
+
+const triggerModal: Function = (data: ICharacter) => {
+  const wrapperElement: HTMLDivElement = document.querySelector('.modal') as HTMLDivElement;
+  const item: ICharacter = data;
+
+  wrapperElement.innerHTML = '';
+  if (!data) {
+    return;
+  }
+  wrapperElement.style.display = 'block';
+
+  const listElement: HTMLDivElement = document.createElement('div');
+  listElement.className = 'item';
+  wrapperElement.appendChild(listElement);
+  listElement.dataset.url = item.url;
+  listElement.innerHTML = `
+      <div class="image-holder">
+        <div class="text-holder">
+          <span class="name">${item.name}</span>
+          <!-- Дата создания - ${item.created} <br /> -->
+          <!-- ${item.episode} <br /> -->
+          <dl>
+            <dt>Пол - </dt>
+            <dd>${item.gender}</dd>
+          </dl>
+          <dl>
+            <dt>ID - </dt>
+            <dd>${item.id}</dd>
+          </dl>
+        </div>
+        <img src=${item.image} alt="" /> <br />
+      </div>
+      <div class="info">
+        <dl>
+          <dt>LOCATION</dt>
+          <dd>${item.location.name}</dd>
+        </dl>
+        <dl>
+          <dt>origin</dt>
+          <dd>${item.origin.name}</dd>
+        </dl>
+        <dl>
+          <dt>species</dt>
+          <dd>${item.species}</dd>
+        </dl>
+        <dl>
+          <dt>Статус</dt>
+          <dd>${item.status}</dd>
+        </dl>
+        <dl>
+          <dt>Способности</dt>
+          <dd>${item.type ? item.type : 'Нету'}</dd>
+        </dl>
+      </div>
+      <a class="btn-close" href="#">X</a>
+    `;
 };
